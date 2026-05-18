@@ -1,0 +1,8 @@
+streamlit
+pandas
+qiskit
+qiskit-aer
+plotly
+fastapi
+uvicorn
+requests
