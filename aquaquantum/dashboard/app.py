@@ -293,7 +293,43 @@ if modulo_activo == "🗺️ Visión General":
     col_m, col_s = st.columns([2, 1])
     with col_m:
         st.plotly_chart(graficar_red_hidrica(red), use_container_width=True)
-        st.markdown(f"Población por zona: {_badge(s_inegi)}", unsafe_allow_html=True)
+
+        # Gráfica de población por zona — datos reales INEGI 2020
+        st.markdown(f"**Población por zona** &nbsp; {_badge(s_inegi)}", unsafe_allow_html=True)
+        zonas_inegi = inegi.get("zonas", {})
+        if zonas_inegi:
+            df_pob = pd.DataFrame([
+                {"Zona": nombre[:18], "Población": d["poblacion"], "Agua (%)": d["agua_pct"]}
+                for nombre, d in zonas_inegi.items()
+            ]).sort_values("Población", ascending=True)
+
+            fig_pob = go.Figure()
+            fig_pob.add_trace(go.Bar(
+                x=df_pob["Población"], y=df_pob["Zona"],
+                orientation='h',
+                marker=dict(
+                    color=df_pob["Agua (%)"],
+                    colorscale="Blues",
+                    colorbar=dict(title="Agua<br>entubada %",
+                                  tickfont=dict(color="white", size=9),
+                                  titlefont=dict(color="white", size=9)),
+                    line=dict(color="rgba(0,180,216,0.3)", width=0.5),
+                ),
+                text=[f"{p:,}" for p in df_pob["Población"]],
+                textposition="outside",
+                textfont=dict(color="white", size=9),
+                hovertemplate="<b>%{y}</b><br>Población: %{x:,}<br>Agua entubada: %{marker.color:.1f}%<extra></extra>",
+            ))
+            fig_pob.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,10,30,0.6)",
+                font=dict(color="#CCEEFF"),
+                height=320,
+                margin=dict(l=10, r=60, t=10, b=10),
+                xaxis=dict(gridcolor="#1a3a5c", tickfont=dict(color="white", size=8)),
+                yaxis=dict(tickfont=dict(color="white", size=9)),
+            )
+            st.plotly_chart(fig_pob, use_container_width=True)
 
     with col_s:
         st.markdown('<div class="seccion-titulo">📊 Red Hídrica</div>', unsafe_allow_html=True)
