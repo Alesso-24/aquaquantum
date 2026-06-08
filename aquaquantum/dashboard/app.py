@@ -138,8 +138,9 @@ st.markdown("""
 
 
 # ─── Carga de datos con cache ─────────────────────────────────
-@st.cache_data(ttl=1800)  # Clima: refresca cada 30 min (evita 429 en Streamlit Cloud)
 def _clima():
+    # Sin cache de Streamlit: los errores no se cachean.
+    # El caché real está en disco dentro de obtener_clima_puebla().
     return obtener_clima_puebla()
 
 @st.cache_data(ttl=3600)  # CONAGUA: refresca cada hora

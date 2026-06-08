@@ -13,10 +13,37 @@ los datos son reales, en caché o simulados (fallback).
 
 import requests
 import time
+import json
+import os
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from dataclasses import dataclass
 from typing import Optional
+
+# Caché en archivo: sobrevive reinicios de Streamlit y no guarda errores
+_CACHE_FILE    = os.path.join(os.path.dirname(__file__), "_clima_cache.json")
+_CACHE_MAX_AGE = 1800  # 30 minutos
+
+
+def _leer_cache_archivo():
+    """Lee el último resultado exitoso guardado en disco."""
+    try:
+        if os.path.exists(_CACHE_FILE):
+            if time.time() - os.path.getmtime(_CACHE_FILE) < _CACHE_MAX_AGE:
+                with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def _guardar_cache_archivo(datos: dict):
+    """Guarda un resultado exitoso en disco."""
+    try:
+        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(datos, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -49,14 +76,14 @@ WEATHER_CODES = {
 
 def obtener_clima_puebla() -> tuple:
     """
-    Obtiene datos meteorológicos actuales y pronóstico de 7 días para Puebla
-    directamente de la API de Open-Meteo (gratuita, sin clave, datos reales).
+    Obtiene datos meteorológicos actuales y pronóstico de 7 días para Puebla.
 
-    Incluye reintentos automáticos con espera para manejar el límite de tasa (429).
+    Estrategia de 3 capas:
+      1. Llama a Open-Meteo (real, tiempo real) — con reintentos si da 429
+      2. Si falla, lee el último resultado exitoso guardado en disco (caché de archivo)
+      3. Si tampoco hay caché, usa promedios históricos del SMN (fallback estático)
 
-    Returns:
-        (dict_clima, DataStatus)
-        El diccionario incluye temperatura actual, lluvia, humedad y pronóstico.
+    Los errores NUNCA se cachean: cada recarga reintenta la API.
     """
     params = {
         "latitude":   PUEBLA_LAT,
@@ -70,17 +97,14 @@ def obtener_clima_puebla() -> tuple:
     headers = {"User-Agent": "AquaQuantum/1.0 HackathonLATAM2026"}
 
     try:
-        # Reintento simple: espera 2 s si recibe 429 y vuelve a intentar una vez
-        for intento in range(2):
+        # Reintentos con espera progresiva ante 429
+        for espera in [0, 2, 5]:
+            if espera:
+                time.sleep(espera)
             resp = requests.get(OPEN_METEO_URL, params=params,
                                 headers=headers, timeout=10)
-            if resp.status_code == 429:
-                time.sleep(2)
-                continue
-            resp.raise_for_status()
-            break
-        else:
-            raise Exception("Límite de peticiones alcanzado (429). El clima se mostrará con valores típicos de Puebla.")
+            if resp.status_code != 429:
+                break
         resp.raise_for_status()
         raw = resp.json()
 
@@ -88,7 +112,6 @@ def obtener_clima_puebla() -> tuple:
         daily   = raw.get("daily",   {})
         hourly  = raw.get("hourly",  {})
 
-        # Extraer pronóstico diario como lista de dicts
         pronostico = []
         dias    = daily.get("time", [])
         t_max   = daily.get("temperature_2m_max", [])
@@ -98,72 +121,82 @@ def obtener_clima_puebla() -> tuple:
         wcode   = daily.get("weather_code", [])
         for i, dia in enumerate(dias):
             pronostico.append({
-                "fecha":          dia,
-                "t_max":          t_max[i] if i < len(t_max) else None,
-                "t_min":          t_min[i] if i < len(t_min) else None,
-                "lluvia_mm":      lluvia[i]  if i < len(lluvia)  else 0,
-                "prob_lluvia_pct":prob_ll[i] if i < len(prob_ll) else 0,
-                "descripcion":    WEATHER_CODES.get(wcode[i] if i < len(wcode) else 0, "Variable"),
+                "fecha":           dia,
+                "t_max":           t_max[i]  if i < len(t_max)   else None,
+                "t_min":           t_min[i]  if i < len(t_min)   else None,
+                "lluvia_mm":       lluvia[i] if i < len(lluvia)  else 0,
+                "prob_lluvia_pct": prob_ll[i] if i < len(prob_ll) else 0,
+                "descripcion":     WEATHER_CODES.get(wcode[i] if i < len(wcode) else 0, "Variable"),
             })
 
-        # Próximas 12 horas (para el gráfico de demanda)
-        horas_prox = []
-        horas_list   = hourly.get("time", [])[:12]
-        temp_list    = hourly.get("temperature_2m", [])[:12]
-        precp_list   = hourly.get("precipitation", [])[:12]
-        prob_h_list  = hourly.get("precipitation_probability", [])[:12]
+        horas_prox  = []
+        horas_list  = hourly.get("time", [])[:12]
+        temp_list   = hourly.get("temperature_2m", [])[:12]
+        precp_list  = hourly.get("precipitation", [])[:12]
+        prob_h_list = hourly.get("precipitation_probability", [])[:12]
         for i, h in enumerate(horas_list):
             horas_prox.append({
-                "hora":        h[-5:],  # "HH:MM"
-                "temperatura": temp_list[i]   if i < len(temp_list)   else None,
-                "lluvia_mm":   precp_list[i]  if i < len(precp_list)  else 0,
-                "prob_lluvia": prob_h_list[i] if i < len(prob_h_list) else 0,
+                "hora":        h[-5:],
+                "temperatura": temp_list[i]    if i < len(temp_list)   else None,
+                "lluvia_mm":   precp_list[i]   if i < len(precp_list)  else 0,
+                "prob_lluvia": prob_h_list[i]  if i < len(prob_h_list) else 0,
             })
 
-        # Precipitación de hoy (acumulado diario) es más útil que la del último minuto
-        lluvia_hoy = daily.get("precipitation_sum", [0])[0] or 0.0
+        lluvia_hoy = daily.get("precipitation_sum", [0.0])[0] or 0.0
 
         clima = {
             "temperatura_c":    current.get("temperature_2m", 20.0),
             "sensacion_c":      current.get("apparent_temperature", 20.0),
             "humedad_pct":      current.get("relative_humidity_2m", 60),
-            "lluvia_mm":        current.get("precipitation", 0.0),  # última hora
-            "lluvia_hoy_mm":    lluvia_hoy,                          # acumulado del día
+            "lluvia_mm":        current.get("precipitation", 0.0),
+            "lluvia_hoy_mm":    lluvia_hoy,
             "weather_code":     current.get("weather_code", 0),
             "descripcion":      WEATHER_CODES.get(current.get("weather_code", 0), "Variable"),
             "pronostico_7dias": pronostico,
             "proximas_12h":     horas_prox,
         }
 
+        # Guardar en caché de archivo solo cuando el resultado es exitoso
+        _guardar_cache_archivo(clima)
+
         status = DataStatus(
-            fuente   = "Open-Meteo (API oficial)",
-            es_real  = True,
-            timestamp= time.time(),
-            nota     = f"Datos en tiempo real · Puebla {PUEBLA_LAT}N, {abs(PUEBLA_LON)}W",
+            fuente    = "Open-Meteo (API oficial)",
+            es_real   = True,
+            timestamp = time.time(),
+            nota      = f"Datos en tiempo real · Puebla {PUEBLA_LAT}N, {abs(PUEBLA_LON)}W",
         )
         return clima, status
 
     except Exception as exc:
-        # Fallback: promedios históricos reales de Puebla (SMN — junio)
+        # Capa 2: intentar leer el último resultado exitoso del caché en disco
+        cache = _leer_cache_archivo()
+        if cache is not None:
+            status = DataStatus(
+                fuente    = "Open-Meteo (caché reciente)",
+                es_real   = True,
+                timestamp = time.time(),
+                nota      = f"Usando últimos datos reales guardados. API temporalmente no disponible: {exc}",
+            )
+            return cache, status
+
+        # Capa 3: fallback estático con promedios históricos SMN — nunca muestra 0
         clima_fallback = {
             "temperatura_c": 18.5, "sensacion_c": 17.0, "humedad_pct": 72,
-            "lluvia_mm": 0.0,       # última hora (desconocida sin API)
-            "lluvia_hoy_mm": None,  # None = no disponible, se muestra distinto en el dashboard
-            "weather_code": 3, "descripcion": "Nublado (sin conexión a API)",
+            "lluvia_mm":     0.0,
+            "lluvia_hoy_mm": None,   # None → dashboard muestra "Sin datos" en vez de 0
+            "weather_code":  3,
+            "descripcion":   "Nublado (sin conexión a API)",
             "pronostico_7dias": [
                 {"fecha": "—", "t_max": 23.0, "t_min": 14.0,
                  "lluvia_mm": 8.0, "prob_lluvia_pct": 80, "descripcion": "Chubascos"},
             ] * 7,
             "proximas_12h": [],
         }
-        es_rate_limit = "429" in str(exc) or "Too Many" in str(exc)
         status = DataStatus(
-            fuente   = "Promedio histórico SMN (sin conexión)" if es_rate_limit else "Valor típico (fallback)",
-            es_real  = False,
-            timestamp= time.time(),
-            nota     = ("Open-Meteo temporalmente no disponible por límite de peticiones. "
-                        "Mostrando promedios históricos del SMN para Puebla en junio."
-                        if es_rate_limit else f"Sin conexión: {exc}"),
+            fuente    = "Sin conexión — promedio histórico SMN",
+            es_real   = False,
+            timestamp = time.time(),
+            nota      = f"API no disponible y sin caché guardado: {exc}",
         )
         return clima_fallback, status
 
