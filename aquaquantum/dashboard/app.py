@@ -210,7 +210,7 @@ inegi, s_inegi       = _inegi()
 red                  = _red()
 serie_demanda        = _serie()
 temperatura_real     = clima["temperatura_c"]
-lluvia_real          = clima["lluvia_mm"]
+lluvia_real          = clima.get("lluvia_hoy_mm", clima.get("lluvia_mm", 0.0))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -228,10 +228,11 @@ if modulo_activo == "🗺️ Visión General":
           <div style="font-size:0.7rem;color:#8ECAE6">Temp. actual · Puebla</div>
         </div>""", unsafe_allow_html=True)
     with c2:
+        lluvia_hoy = clima.get('lluvia_hoy_mm', clima.get('lluvia_mm', 0))
         st.markdown(f"""<div class="clima-card">
           <div style="font-size:1.5rem">🌧️</div>
-          <div style="font-size:1.6rem;color:#00B4D8;font-weight:700">{clima['lluvia_mm']} mm</div>
-          <div style="font-size:0.7rem;color:#8ECAE6">Precipitación actual</div>
+          <div style="font-size:1.6rem;color:#00B4D8;font-weight:700">{lluvia_hoy} mm</div>
+          <div style="font-size:0.7rem;color:#8ECAE6">Lluvia acumulada hoy</div>
         </div>""", unsafe_allow_html=True)
     with c3:
         st.markdown(f"""<div class="clima-card">
@@ -593,7 +594,8 @@ elif modulo_activo == "📡 Datos Reales":
         st.metric("Temperatura actual",   f"{clima['temperatura_c']}°C")
         st.metric("Sensación térmica",    f"{clima['sensacion_c']}°C")
         st.metric("Humedad relativa",     f"{clima['humedad_pct']}%")
-        st.metric("Precipitación actual", f"{clima['lluvia_mm']} mm")
+        st.metric("Lluvia acumulada hoy",  f"{clima.get('lluvia_hoy_mm', clima.get('lluvia_mm',0))} mm")
+        st.metric("Lluvia última hora",    f"{clima['lluvia_mm']} mm")
         st.metric("Condición",            clima["descripcion"])
     with col2:
         pronostico = clima.get("pronostico_7dias", [])

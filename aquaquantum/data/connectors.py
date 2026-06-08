@@ -120,11 +120,15 @@ def obtener_clima_puebla() -> tuple:
                 "prob_lluvia": prob_h_list[i] if i < len(prob_h_list) else 0,
             })
 
+        # Precipitación de hoy (acumulado diario) es más útil que la del último minuto
+        lluvia_hoy = daily.get("precipitation_sum", [0])[0] or 0.0
+
         clima = {
             "temperatura_c":    current.get("temperature_2m", 20.0),
             "sensacion_c":      current.get("apparent_temperature", 20.0),
             "humedad_pct":      current.get("relative_humidity_2m", 60),
-            "lluvia_mm":        current.get("precipitation", 0.0),
+            "lluvia_mm":        current.get("precipitation", 0.0),  # última hora
+            "lluvia_hoy_mm":    lluvia_hoy,                          # acumulado del día
             "weather_code":     current.get("weather_code", 0),
             "descripcion":      WEATHER_CODES.get(current.get("weather_code", 0), "Variable"),
             "pronostico_7dias": pronostico,
