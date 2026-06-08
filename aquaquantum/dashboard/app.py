@@ -303,22 +303,29 @@ if modulo_activo == "🗺️ Visión General":
                 for nombre, d in zonas_inegi.items()
             ]).sort_values("Población", ascending=True)
 
+            # Color por acceso a agua: más azul = mejor cobertura
+            agua_vals = df_pob["Agua (%)"].tolist()
+            agua_min, agua_max = min(agua_vals), max(agua_vals)
+            def _agua_color(v):
+                t = (v - agua_min) / (agua_max - agua_min + 1e-9)
+                r = int(0 + (0) * t)
+                g = int(100 + (180 - 100) * t)
+                b = int(150 + (216 - 150) * t)
+                return f"rgb({r},{g},{b})"
+            bar_colors = [_agua_color(v) for v in agua_vals]
+
             fig_pob = go.Figure()
             fig_pob.add_trace(go.Bar(
                 x=df_pob["Población"], y=df_pob["Zona"],
                 orientation='h',
                 marker=dict(
-                    color=df_pob["Agua (%)"],
-                    colorscale="Blues",
-                    colorbar=dict(title="Agua<br>entubada %",
-                                  tickfont=dict(color="white", size=9),
-                                  titlefont=dict(color="white", size=9)),
+                    color=bar_colors,
                     line=dict(color="rgba(0,180,216,0.3)", width=0.5),
                 ),
-                text=[f"{p:,}" for p in df_pob["Población"]],
+                text=[f"{p:,}  ({a:.0f}% agua)" for p, a in zip(df_pob["Población"], agua_vals)],
                 textposition="outside",
                 textfont=dict(color="white", size=9),
-                hovertemplate="<b>%{y}</b><br>Población: %{x:,}<br>Agua entubada: %{marker.color:.1f}%<extra></extra>",
+                hovertemplate="<b>%{y}</b><br>Población: %{x:,}<br>Agua entubada: %{text}<extra></extra>",
             ))
             fig_pob.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
