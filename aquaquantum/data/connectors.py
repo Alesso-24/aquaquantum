@@ -147,7 +147,9 @@ def obtener_clima_puebla() -> tuple:
         # Fallback: promedios históricos reales de Puebla (SMN — junio)
         clima_fallback = {
             "temperatura_c": 18.5, "sensacion_c": 17.0, "humedad_pct": 72,
-            "lluvia_mm": 0.0, "weather_code": 3, "descripcion": "Nublado (promedio junio)",
+            "lluvia_mm": 0.0,       # última hora (desconocida sin API)
+            "lluvia_hoy_mm": None,  # None = no disponible, se muestra distinto en el dashboard
+            "weather_code": 3, "descripcion": "Nublado (sin conexión a API)",
             "pronostico_7dias": [
                 {"fecha": "—", "t_max": 23.0, "t_min": 14.0,
                  "lluvia_mm": 8.0, "prob_lluvia_pct": 80, "descripcion": "Chubascos"},

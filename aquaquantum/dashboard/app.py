@@ -228,11 +228,13 @@ if modulo_activo == "🗺️ Visión General":
           <div style="font-size:0.7rem;color:#8ECAE6">Temp. actual · Puebla</div>
         </div>""", unsafe_allow_html=True)
     with c2:
-        lluvia_hoy = clima.get('lluvia_hoy_mm', clima.get('lluvia_mm', 0))
+        lluvia_hoy = clima.get('lluvia_hoy_mm')
+        lluvia_txt = f"{lluvia_hoy} mm" if lluvia_hoy is not None else "Sin datos"
+        lluvia_sub = "Lluvia acumulada hoy" if lluvia_hoy is not None else "API no disponible"
         st.markdown(f"""<div class="clima-card">
           <div style="font-size:1.5rem">🌧️</div>
-          <div style="font-size:1.6rem;color:#00B4D8;font-weight:700">{lluvia_hoy} mm</div>
-          <div style="font-size:0.7rem;color:#8ECAE6">Lluvia acumulada hoy</div>
+          <div style="font-size:1.6rem;color:#00B4D8;font-weight:700">{lluvia_txt}</div>
+          <div style="font-size:0.7rem;color:#8ECAE6">{lluvia_sub}</div>
         </div>""", unsafe_allow_html=True)
     with c3:
         st.markdown(f"""<div class="clima-card">
