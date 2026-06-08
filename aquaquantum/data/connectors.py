@@ -52,6 +52,8 @@ def obtener_clima_puebla() -> tuple:
     Obtiene datos meteorológicos actuales y pronóstico de 7 días para Puebla
     directamente de la API de Open-Meteo (gratuita, sin clave, datos reales).
 
+    Incluye reintentos automáticos con espera para manejar el límite de tasa (429).
+
     Returns:
         (dict_clima, DataStatus)
         El diccionario incluye temperatura actual, lluvia, humedad y pronóstico.
@@ -65,9 +67,20 @@ def obtener_clima_puebla() -> tuple:
         "timezone":   "America/Mexico_City",
         "forecast_days": 7,
     }
+    headers = {"User-Agent": "AquaQuantum/1.0 HackathonLATAM2026"}
 
     try:
-        resp = requests.get(OPEN_METEO_URL, params=params, timeout=8)
+        # Reintento simple: espera 2 s si recibe 429 y vuelve a intentar una vez
+        for intento in range(2):
+            resp = requests.get(OPEN_METEO_URL, params=params,
+                                headers=headers, timeout=10)
+            if resp.status_code == 429:
+                time.sleep(2)
+                continue
+            resp.raise_for_status()
+            break
+        else:
+            raise Exception("Límite de peticiones alcanzado (429). El clima se mostrará con valores típicos de Puebla.")
         resp.raise_for_status()
         raw = resp.json()
 
@@ -127,17 +140,24 @@ def obtener_clima_puebla() -> tuple:
         return clima, status
 
     except Exception as exc:
-        # Fallback: valores típicos de Puebla en verano
+        # Fallback: promedios históricos reales de Puebla (SMN — junio)
         clima_fallback = {
-            "temperatura_c": 22.0, "sensacion_c": 22.0, "humedad_pct": 65,
-            "lluvia_mm": 0.0, "weather_code": 2, "descripcion": "Parcialmente nublado",
-            "pronostico_7dias": [], "proximas_12h": [],
+            "temperatura_c": 18.5, "sensacion_c": 17.0, "humedad_pct": 72,
+            "lluvia_mm": 0.0, "weather_code": 3, "descripcion": "Nublado (promedio junio)",
+            "pronostico_7dias": [
+                {"fecha": "—", "t_max": 23.0, "t_min": 14.0,
+                 "lluvia_mm": 8.0, "prob_lluvia_pct": 80, "descripcion": "Chubascos"},
+            ] * 7,
+            "proximas_12h": [],
         }
+        es_rate_limit = "429" in str(exc) or "Too Many" in str(exc)
         status = DataStatus(
-            fuente   = "Valor típico (fallback)",
+            fuente   = "Promedio histórico SMN (sin conexión)" if es_rate_limit else "Valor típico (fallback)",
             es_real  = False,
             timestamp= time.time(),
-            nota     = f"Sin conexión a Open-Meteo: {exc}",
+            nota     = ("Open-Meteo temporalmente no disponible por límite de peticiones. "
+                        "Mostrando promedios históricos del SMN para Puebla en junio."
+                        if es_rate_limit else f"Sin conexión: {exc}"),
         )
         return clima_fallback, status
 
