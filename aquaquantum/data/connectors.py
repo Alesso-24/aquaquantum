@@ -74,6 +74,62 @@ WEATHER_CODES = {
 }
 
 
+def _obtener_wttr() -> dict:
+    """
+    Obtiene clima de wttr.in (más permisivo que Open-Meteo, sin límite de tasa).
+    Devuelve dict en el mismo formato que obtener_clima_puebla.
+    """
+    resp = requests.get(
+        "https://wttr.in/Puebla,Mexico?format=j1",
+        headers={"User-Agent": "AquaQuantum/1.0 HackathonLATAM2026"},
+        timeout=8,
+    )
+    resp.raise_for_status()
+    d = resp.json()
+
+    cur = d["current_condition"][0]
+    weather_dias = d.get("weather", [])
+
+    desc_map = {
+        "Sunny": "Despejado", "Clear": "Despejado", "Partly cloudy": "Parcialmente nublado",
+        "Cloudy": "Nublado", "Overcast": "Nublado", "Mist": "Niebla",
+        "Light rain": "Lluvia leve", "Moderate rain": "Lluvia moderada",
+        "Heavy rain": "Lluvia intensa", "Light rain shower": "Llovizna",
+        "Moderate or heavy rain shower": "Chubascos", "Thundery outbreaks": "Tormenta",
+        "Patchy rain possible": "Lluvia probable",
+    }
+    desc_raw = cur["weatherDesc"][0]["value"]
+    desc_es  = desc_map.get(desc_raw, desc_raw)
+
+    pronostico = []
+    for dia in weather_dias:
+        lluvia_dia = round(sum(float(h.get("precipMM", 0)) for h in dia.get("hourly", [])), 1)
+        desc_dia   = dia["hourly"][4]["weatherDesc"][0]["value"] if dia.get("hourly") else desc_raw
+        pronostico.append({
+            "fecha":           dia["date"],
+            "t_max":           float(dia["maxtempC"]),
+            "t_min":           float(dia["mintempC"]),
+            "lluvia_mm":       lluvia_dia,
+            "prob_lluvia_pct": int(dia["hourly"][4].get("chanceofrain", 50)) if dia.get("hourly") else 50,
+            "descripcion":     desc_map.get(desc_dia, desc_dia),
+        })
+
+    lluvia_hoy = pronostico[0]["lluvia_mm"] if pronostico else float(cur.get("precipMM", 0))
+
+    return {
+        "temperatura_c":    float(cur["temp_C"]),
+        "sensacion_c":      float(cur["FeelsLikeC"]),
+        "humedad_pct":      int(cur["humidity"]),
+        "lluvia_mm":        float(cur.get("precipMM", 0)),
+        "lluvia_hoy_mm":    lluvia_hoy,
+        "weather_code":     3,
+        "descripcion":      desc_es,
+        "pronostico_7dias": pronostico,
+        "proximas_12h":     [],
+        "_fuente_raw":      "wttr.in",
+    }
+
+
 def obtener_clima_puebla() -> tuple:
     """
     Obtiene datos meteorológicos actuales y pronóstico de 7 días para Puebla.
@@ -97,7 +153,20 @@ def obtener_clima_puebla() -> tuple:
     headers = {"User-Agent": "AquaQuantum/1.0 HackathonLATAM2026"}
 
     try:
-        # Reintentos con espera progresiva ante 429
+        # Capa 1: wttr.in (sin límite de tasa, más confiable en Streamlit Cloud)
+        try:
+            clima = _obtener_wttr()
+            _guardar_cache_archivo(clima)
+            return clima, DataStatus(
+                fuente    = "wttr.in (tiempo real)",
+                es_real   = True,
+                timestamp = time.time(),
+                nota      = f"Datos en tiempo real · Puebla, México",
+            )
+        except Exception:
+            pass  # Si falla, intentar Open-Meteo
+
+        # Capa 2: Open-Meteo con reintentos
         for espera in [0, 2, 5]:
             if espera:
                 time.sleep(espera)

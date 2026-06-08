@@ -30,63 +30,61 @@ LAYOUT_BASE = dict(
 
 
 def graficar_red_hidrica(red: dict) -> go.Figure:
-    """Mapa interactivo de la red hídrica con estado de nodos y tuberías."""
-    nodos = red['nodos']
+    """Mapa interactivo de la red hídrica usando OpenStreetMap (sin API key)."""
+    nodos     = red['nodos']
     conexiones = red['conexiones']
-
-    # Trazar tuberías (edges)
-    edge_x, edge_y, edge_colors = [], [], []
-    for conn in conexiones:
-        i, j = conn['origen_idx'], conn['destino_idx']
-        edge_x += [nodos[i]['lon'], nodos[j]['lon'], None]
-        edge_y += [nodos[i]['lat'], nodos[j]['lat'], None]
 
     fig = go.Figure()
 
-    fig.add_trace(go.Scattergeo(
-        lon=edge_x, lat=edge_y,
-        mode='lines',
-        line=dict(width=2, color=COLORS['azul_agua']),
-        opacity=0.6,
-        name='Tuberías',
-        hoverinfo='skip',
-    ))
-
-    # Nodos coloreados por estado (fuga / normal)
-    for idx, nodo in nodos.items():
-        color  = COLORS['rojo'] if nodo['tiene_fuga'] else COLORS['verde']
-        simbolo = 'triangle-up' if nodo['tiene_fuga'] else 'circle'
-        fig.add_trace(go.Scattergeo(
-            lon=[nodo['lon']], lat=[nodo['lat']],
-            mode='markers+text',
-            marker=dict(size=14, color=color, symbol=simbolo, line=dict(width=2, color='white')),
-            text=[nodo['nombre'][:12]],
-            textposition='top center',
-            textfont=dict(size=9, color='white'),
-            name=nodo['nombre'],
-            hovertemplate=(
-                f"<b>{nodo['nombre']}</b><br>"
-                f"Población: {nodo['poblacion']:,}<br>"
-                f"Presión: {nodo['presion_bar']} bar<br>"
-                f"Cobertura: {nodo['cobertura_pct']}%<br>"
-                f"Estado: {'⚠️ FUGA' if nodo['tiene_fuga'] else '✅ Normal'}<extra></extra>"
-            ),
+    # Tuberías como líneas sobre el mapa
+    for conn in conexiones:
+        i, j = conn['origen_idx'], conn['destino_idx']
+        fig.add_trace(go.Scattermapbox(
+            lat=[nodos[i]['lat'], nodos[j]['lat']],
+            lon=[nodos[i]['lon'], nodos[j]['lon']],
+            mode='lines',
+            line=dict(width=2, color=COLORS['azul_agua']),
+            opacity=0.65,
             showlegend=False,
+            hoverinfo='skip',
         ))
+
+    # Nodos: color rojo si tiene fuga, verde si está normal
+    lats    = [n['lat']      for n in nodos.values()]
+    lons    = [n['lon']      for n in nodos.values()]
+    colores = [COLORS['rojo'] if n['tiene_fuga'] else COLORS['verde'] for n in nodos.values()]
+    textos  = [
+        (f"<b>{n['nombre']}</b><br>"
+         f"Pob: {n['poblacion']:,} hab · INEGI 2020<br>"
+         f"Cobertura: {n['cobertura_pct']}%<br>"
+         f"Presión: {n['presion_bar']} bar<br>"
+         f"{'⚠️ FUGA DETECTADA' if n['tiene_fuga'] else '✅ Operación normal'}")
+        for n in nodos.values()
+    ]
+    nombres = [n['nombre'] for n in nodos.values()]
+    sizes   = [18 if n['tiene_fuga'] else 13 for n in nodos.values()]
+
+    fig.add_trace(go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode='markers+text',
+        marker=dict(size=sizes, color=colores, opacity=0.9),
+        text=nombres,
+        textposition='top right',
+        textfont=dict(size=9, color='white'),
+        hovertext=textos,
+        hoverinfo='text',
+        showlegend=False,
+    ))
 
     fig.update_layout(
         **LAYOUT_BASE,
         title='Red Hídrica Urbana — Puebla de Zaragoza',
-        geo=dict(
-            scope='north america',
-            center=dict(lat=19.043, lon=-98.198),
-            projection_scale=200,
-            showland=True, landcolor='#0D1B2A',
-            showocean=True, oceancolor='#03045E',
-            showlakes=True, lakecolor='#00B4D8',
-            showcountries=True, countrycolor='#333',
+        mapbox=dict(
+            style='open-street-map',
+            center=dict(lat=19.048, lon=-98.210),
+            zoom=11,
         ),
-        height=420,
+        height=440,
     )
     return fig
 
